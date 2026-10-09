@@ -1,0 +1,54 @@
+#ifndef CONFIG_H
+#define CONFIG_H
+
+// ============================================================================
+//  CONFIG.h  --  Central tuning file for the whole firmware
+// ============================================================================
+//  Change values HERE only - every module picks them up automatically.
+//  Pin assignments live separately in PINS_CONFIG.h.
+//
+//  Usage: each module header includes this file, so the constants are
+//  available in every translation unit (.ino / .cpp).
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// SYSTEM
+// ----------------------------------------------------------------------------
+#define SYSTEM_LOOP_DELAY_MS     10        // pause at the end of loop() [ms]
+
+// ----------------------------------------------------------------------------
+// DISPLAY - 16x2 I2C LCD (LiquidCrystal_I2C)
+// ----------------------------------------------------------------------------
+#define LCD_I2C_ADDR             0x27      // I2C backpack address (0x3F common)
+#define LCD_COLS                 16        // characters per row
+#define LCD_ROWS                 2         // number of rows
+
+// ----------------------------------------------------------------------------
+// BUTTONS - front-panel navigation (Up / Down / Select / Back)
+// ----------------------------------------------------------------------------
+#define BUTTON_ACTIVE_LOW        true      // true: pressed = LOW (pull-up wiring)
+#define DEBOUNCE_DELAY           50        // debounce window [ms]
+
+// ----------------------------------------------------------------------------
+// RELAYS - 8-channel relay board (pumps, motors, valves)
+// ----------------------------------------------------------------------------
+#define RELAY_ACTIVE_LOW         true      // true: LOW energizes the relay
+
+// ----------------------------------------------------------------------------
+// FLOW SENSORS - YF-S201 hall-effect pulse meters
+// ----------------------------------------------------------------------------
+#define FLOW_CALIBRATION_FACTOR  450.0     // pulses per liter
+                                             // (YF-S201 ~450, YF-S401 ~5880)
+#define FLOW_MEASURE_INTERVAL    1000      // flow recompute interval [ms]
+#define FILTER_END_FLOW_ML_MIN   1.0       // flow below this = filtering done
+                                             // [mL/min]
+
+// ----------------------------------------------------------------------------
+// CYCLE PARAMETERS - per treatment line
+// ----------------------------------------------------------------------------
+#define VOLUME_SANTOL            100.0     // target fill volume, Santol  [mL]
+#define VOLUME_SAMPALOK          100.0     // target fill volume, Sampalok [mL]
+#define STIRRING_TIME            (15UL * 60UL * 1000UL)  // stir duration [ms]
+                                             // (default 15 minutes)
+
+#endif // CONFIG_H
