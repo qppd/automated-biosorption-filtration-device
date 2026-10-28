@@ -60,11 +60,11 @@
 
 // ----------------------------------------------------------------------------
 // Front-panel buttons (INPUT_PULLUP, active LOW)
+// Two-button interface: the cycle itself is fully automatic, so the operator
+// only needs START (run the sequence) and STOP (force stop / reset).
 // Must be ordinary GPIOs - input-only 34-39 have no internal pull-ups.
 // ----------------------------------------------------------------------------
-#define BTN_UP_PIN          32
-#define BTN_DOWN_PIN        33
-#define BTN_SELECT_PIN      25
-#define BTN_BACK_PIN        5    // strapping pin, safe: pull-up idles it HIGH
+#define BTN_START_PIN       25
+#define BTN_STOP_PIN        32   // force stop; ordinary GPIO, not a strapping pin
 
 #endif // PINS_CONFIG_H

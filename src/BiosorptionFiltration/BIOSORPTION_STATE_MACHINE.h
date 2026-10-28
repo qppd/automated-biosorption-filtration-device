@@ -3,15 +3,16 @@
 
 #include <Arduino.h>
 #include "CONFIG.h"  // VOLUME_SANTOL, VOLUME_SAMPALOK, STIRRING_TIME,
-                    // FILTER_END_FLOW_ML_MIN
+                    // FILL_TIMEOUT_MS
 
 // State of one treatment line
 typedef enum {
   STATE_IDLE,
   STATE_FILLING,
   STATE_STIRRING,
-  STATE_FILTERING,
-  STATE_COMPLETE
+  STATE_DISPENSING,  // valve open; ended by the operator with STOP
+  STATE_COMPLETE,
+  STATE_FAULT        // fill timeout expired; cleared with the STOP button
 } BiosorptionState;
 
 // Current state of each line, modified by system_run()

@@ -36,7 +36,7 @@ Hardware and software components of the Automated Biosorption Filtration Device,
 
 | Tool | Role |
 |---|---|
-| Arduino IDE 2.x or PlatformIO | Editing, compilation, upload |
+| Arduino IDE 2.x | Editing, compilation, upload |
 | ESP32 board package (Espressif) | Board definitions for the ESP32 Dev Module target |
 | Git | Version control for firmware, documentation, and hardware notes |
 | Markdown | Documentation format for README.md, FIRMWARE.md, and STACKS.md |
@@ -70,7 +70,7 @@ Hardware and software components of the Automated Biosorption Filtration Device,
 | Flow sensor pulses per liter | `CONFIG.h` | `FLOW_CALIBRATION_FACTOR` from the sensor datasheet or a calibration test |
 | Target volume per line | `CONFIG.h` | `VOLUME_SANTOL`, `VOLUME_SAMPALOK` in mL |
 | Stirring duration | `CONFIG.h` | `STIRRING_TIME` in ms; default 15 minutes |
-| Filtration end threshold | `CONFIG.h` | `FILTER_END_FLOW_ML_MIN` in mL/min |
+| Fill timeout | `CONFIG.h` | `FILL_TIMEOUT_MS` in ms; dispensing is ended manually with STOP |
 | LCD I2C address | `CONFIG.h` | `LCD_I2C_ADDR` as 0x27 or 0x3F per backpack |
 | Debounce delay | `CONFIG.h` | `DEBOUNCE_DELAY` if buttons chatter |
 | Relay and button active level | `CONFIG.h` | `RELAY_ACTIVE_LOW`, `BUTTON_ACTIVE_LOW` |

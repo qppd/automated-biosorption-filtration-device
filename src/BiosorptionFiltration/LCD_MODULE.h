@@ -15,6 +15,11 @@ void lcd_init();
 void lcd_display_message(const char* message, uint8_t row = 0);
 void lcd_clear();
 
+// Writes a row only when its text differs from what is already displayed.
+// Use this for live values (metered volume, countdown) so the display does not
+// flicker and the I2C bus is not written on every loop pass.
+void lcd_write_row(uint8_t row, const char* text);
+
 // Write text at column x, row y without clearing the whole display.
 // x: 0..LCD_COLS-1, y: 0..LCD_ROWS-1; out-of-range values are clamped.
 inline void setLCDText(const String &text, uint8_t x, uint8_t y) {

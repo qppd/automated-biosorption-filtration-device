@@ -12,15 +12,17 @@ FlowSensorData flow_sensor_santol;
 FlowSensorData flow_sensor_sampalok;
 
 void setup() {
+  // Serial is used for fault and phase logging only; the LCD stays the
+  // primary operator interface.
+  Serial.begin(115200);
+
   // Order matters: display, then outputs, then inputs. system_init()
-  // initialises the flow sensors and attaches their interrupts.
+  // initialises the flow sensors, attaches their interrupts and writes the
+  // "Press START" screen.
   lcd_init();
   relay_init();
   button_init();
   system_init();
-
-  setLCDText("Biosorption System", 0, 0);
-  setLCDText("Ready", 0, 1);
 }
 
 void loop() {

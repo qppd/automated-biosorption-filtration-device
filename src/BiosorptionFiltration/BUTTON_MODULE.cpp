@@ -3,7 +3,7 @@
 ButtonData buttons[BTN_COUNT];
 
 void button_init() {
-  uint8_t pins[BTN_COUNT] = {BTN_UP_PIN, BTN_DOWN_PIN, BTN_SELECT_PIN, BTN_BACK_PIN};
+  uint8_t pins[BTN_COUNT] = {BTN_START_PIN, BTN_STOP_PIN};
   for (uint8_t i = 0; i < BTN_COUNT; ++i) {
     buttons[i].pin = pins[i];
     buttons[i].lastState = BUTTON_ACTIVE_LOW ? HIGH : LOW;  // not pressed
@@ -43,33 +43,33 @@ static inline bool wasPressed(const ButtonData& b) {
   return b.lastState == (BUTTON_ACTIVE_LOW ? LOW : HIGH);
 }
 
-// Map a ButtonID (BTN_NONE = 0, BTN_UP = 1 ... BTN_BACK = 4) to its
-// buttons[] index (BTN_UP = 0 ... BTN_BACK = 3). Invalid for BTN_NONE
+// Map a ButtonID (BTN_NONE = 0, BTN_START = 1, BTN_STOP = 2) to its
+// buttons[] index (BTN_START = 0, BTN_STOP = 1). Invalid for BTN_NONE
 // and for values outside the button range.
 static inline bool valid_button_id(ButtonID id) {
-  return id >= BTN_UP && id <= BTN_BACK;
+  return id >= BTN_START && id <= BTN_STOP;
 }
 
 bool button_pressed(ButtonID id) {
   if (!valid_button_id(id)) return false;
-  const ButtonData& b = buttons[id - BTN_UP];
+  const ButtonData& b = buttons[id - BTN_START];
   return !wasPressed(b) && isPressed(b);
 }
 
 bool button_released(ButtonID id) {
   if (!valid_button_id(id)) return false;
-  const ButtonData& b = buttons[id - BTN_UP];
+  const ButtonData& b = buttons[id - BTN_START];
   return wasPressed(b) && !isPressed(b);
 }
 
 bool button_state(ButtonID id) {
   if (!valid_button_id(id)) return false;
-  return isPressed(buttons[id - BTN_UP]);
+  return isPressed(buttons[id - BTN_START]);
 }
 
 ButtonID button_get_pressed() {
   for (uint8_t i = 0; i < BTN_COUNT; ++i) {
-    ButtonID id = static_cast<ButtonID>(BTN_UP + i);
+    ButtonID id = static_cast<ButtonID>(BTN_START + i);
     if (button_pressed(id)) {
       return id;
     }
@@ -79,7 +79,7 @@ ButtonID button_get_pressed() {
 
 ButtonID button_get_released() {
   for (uint8_t i = 0; i < BTN_COUNT; ++i) {
-    ButtonID id = static_cast<ButtonID>(BTN_UP + i);
+    ButtonID id = static_cast<ButtonID>(BTN_START + i);
     if (button_released(id)) {
       return id;
     }

@@ -4,22 +4,53 @@
 #include "LCD_MODULE.h"
 #include "BUTTON_MODULE.h"
 #include <Arduino.h>
+#include <stdio.h>
+#include <string.h>
 
-// Current state of each treatment line
+// Current state of each treatment line (public, for status inspection)
 BiosorptionState state_santol = STATE_IDLE;
 BiosorptionState state_sampalok = STATE_IDLE;
-
-// Time (ms) at which each stirrer was started
-static unsigned long stir_start_time_santol = 0;
-static unsigned long stir_start_time_sampalok = 0;
 
 // Flow sensor instances, defined in BiosorptionFiltration.ino
 extern FlowSensorData flow_sensor_santol;
 extern FlowSensorData flow_sensor_sampalok;
 
+// One treatment line. Both lines run the same code with their own sensor,
+// relays and constants.
+typedef struct {
+  const char* tag;            // short label shown on the LCD ("SA" / "SP")
+  float fill_target_ml;       // volume that ends the fill phase
+  unsigned long phase_start;  // millis() when the current phase began
+  RelayIndex pump;
+  RelayIndex motor;
+  RelayIndex valve;
+  FlowSensorData* sensor;     // on the fill path only
+} Line;
+
+static Line line_santol = {
+  "SA", VOLUME_SANTOL, 0,
+  RELAY_PUMP_SANTOL, RELAY_MOTOR_SANTOL, RELAY_VALVE_SANTOL,
+  &flow_sensor_santol
+};
+
+static Line line_sampalok = {
+  "SP", VOLUME_SAMPALOK, 0,
+  RELAY_PUMP_SAMPALOK, RELAY_MOTOR_SAMPALOK, RELAY_VALVE_SAMPALOK,
+  &flow_sensor_sampalok
+};
+
+// Switch every load of one line off.
+static void line_all_off(const Line& line) {
+  relay_off(line.pump);
+  relay_off(line.motor);
+  relay_off(line.valve);
+}
+
 void system_init() {
   state_santol = STATE_IDLE;
   state_sampalok = STATE_IDLE;
+  line_santol.phase_start = 0;
+  line_sampalok.phase_start = 0;
 
   // Flow sensors: pins come from PINS_CONFIG.h; every ESP32 GPIO is
   // interrupt-capable
@@ -39,127 +70,221 @@ void system_init() {
 
   relay_all_off();
 
-  setLCDText("System Initialized", 0, 0);
-  setLCDText("Ready", 0, 1);
+  lcd_write_row(0, "Biosorption");
+  lcd_write_row(1, "Press START");
+}
+
+// ---------------------------------------------------------------------------
+// Automatic phases. DISPENSING is deliberately not automatic: there is no
+// flow sensor on the valve path, so the operator ends it with STOP.
+// ---------------------------------------------------------------------------
+static void run_line(Line& line, BiosorptionState& state) {
+  unsigned long elapsed = millis() - line.phase_start;
+
+  switch (state) {
+    case STATE_IDLE:
+    case STATE_COMPLETE:
+    case STATE_FAULT:
+      break;
+
+    case STATE_FILLING:
+      if (flow_sensor_get_total_volume_ml(line.sensor) >= line.fill_target_ml) {
+        relay_off(line.pump);
+        relay_on(line.motor);
+        state = STATE_STIRRING;
+        line.phase_start = millis();
+      } else if (elapsed >= FILL_TIMEOUT_MS) {
+        // Pump dry, sensor dead or reservoir empty: stop instead of running on.
+        line_all_off(line);
+        state = STATE_FAULT;
+        Serial.print(line.tag);
+        Serial.println(": fill timeout");
+      }
+      break;
+
+    case STATE_STIRRING:
+      if (elapsed >= STIRRING_TIME) {
+        relay_off(line.motor);
+        relay_on(line.valve);
+        state = STATE_DISPENSING;
+        line.phase_start = millis();
+        Serial.print(line.tag);
+        Serial.println(": dispensing");
+      }
+      break;
+
+    case STATE_DISPENSING:
+      // Nothing to detect: the valve stays open until STOP is pressed.
+      break;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Display
+// ---------------------------------------------------------------------------
+static void render_line(const Line& line, BiosorptionState state,
+                        char* buf, size_t len) {
+  switch (state) {
+    case STATE_IDLE:
+      snprintf(buf, len, "%s:IDLE", line.tag);
+      break;
+
+    case STATE_FILLING:
+      // Pump state plus the volume the flow sensor has counted so far.
+      snprintf(buf, len, "%s:P ON %4.1fmL", line.tag,
+               flow_sensor_get_total_volume_ml(line.sensor));
+      break;
+
+    case STATE_STIRRING: {
+      // Stirrer state plus the remaining contact time (mm:ss).
+      unsigned long elapsed = millis() - line.phase_start;
+      unsigned long left = (elapsed < STIRRING_TIME) ? (STIRRING_TIME - elapsed) : 0;
+      snprintf(buf, len, "%s:M ON %02lu:%02lu", line.tag,
+               left / 60000UL, (left / 1000UL) % 60UL);
+      break;
+    }
+
+    case STATE_DISPENSING:
+      snprintf(buf, len, "%s:VLV OPEN", line.tag);
+      break;
+
+    case STATE_COMPLETE:
+      snprintf(buf, len, "%s:DONE", line.tag);
+      break;
+
+    case STATE_FAULT:
+      snprintf(buf, len, "%s:TIMEOUT", line.tag);
+      break;
+  }
+}
+
+// The 16x2 display has two rows, so shared states get a combined screen and
+// mixed states get one row per line.
+static void update_display() {
+  char top[LCD_COLS + 1];
+  char bottom[LCD_COLS + 1];
+
+  bool s_idle = (state_santol == STATE_IDLE);
+  bool p_idle = (state_sampalok == STATE_IDLE);
+  bool s_disp = (state_santol == STATE_DISPENSING);
+  bool p_disp = (state_sampalok == STATE_DISPENSING);
+  bool s_done = (state_santol == STATE_COMPLETE);
+  bool p_done = (state_sampalok == STATE_COMPLETE);
+  bool running = (state_santol == STATE_FILLING || state_santol == STATE_STIRRING ||
+                  state_sampalok == STATE_FILLING || state_sampalok == STATE_STIRRING);
+
+  if (s_idle && p_idle) {
+    snprintf(top, sizeof top, "Biosorption");
+    snprintf(bottom, sizeof bottom, "Press START");
+
+  } else if ((s_disp || p_disp) && !running) {
+    // At least one valve is open and nothing is filling or stirring. There is
+    // no outlet flow sensor, so the operator ends the flow by hand.
+    if (s_disp && p_disp) {
+      snprintf(top, sizeof top, "SA:OPEN SP:OPEN");
+    } else if (s_disp) {
+      snprintf(top, sizeof top, "SA:OPEN");
+    } else {
+      snprintf(top, sizeof top, "SP:OPEN");
+    }
+    snprintf(bottom, sizeof bottom, "Press STOP");
+
+  } else if (s_done && p_done) {
+    snprintf(top, sizeof top, "SA:DONE SP:DONE");
+    snprintf(bottom, sizeof bottom, "Press START");
+
+  } else {
+    render_line(line_santol, state_santol, top, sizeof top);
+    render_line(line_sampalok, state_sampalok, bottom, sizeof bottom);
+  }
+
+  lcd_write_row(0, top);
+  lcd_write_row(1, bottom);
+}
+
+// ---------------------------------------------------------------------------
+// Operator input
+// ---------------------------------------------------------------------------
+static void handle_start() {
+  bool santol_ready = (state_santol == STATE_IDLE || state_santol == STATE_COMPLETE);
+  bool sampalok_ready = (state_sampalok == STATE_IDLE || state_sampalok == STATE_COMPLETE);
+  if (!santol_ready || !sampalok_ready) return;
+
+  start_santol_cycle();
+  start_sampalok_cycle();
+}
+
+static void handle_stop() {
+  bool running = (state_santol == STATE_FILLING || state_santol == STATE_STIRRING ||
+                  state_sampalok == STATE_FILLING || state_sampalok == STATE_STIRRING);
+  bool dispensing = (state_santol == STATE_DISPENSING || state_sampalok == STATE_DISPENSING);
+
+  if (!running && dispensing) {
+    // STOP was pressed while the "Press STOP" prompt was up: the product is
+    // fully dispensed. Close the valves and keep the batch as complete.
+    relay_all_off();
+    if (state_santol == STATE_DISPENSING) state_santol = STATE_COMPLETE;
+    if (state_sampalok == STATE_DISPENSING) state_sampalok = STATE_COMPLETE;
+    // Clear any fault on the other line so the next START is accepted.
+    if (state_santol == STATE_FAULT) state_santol = STATE_IDLE;
+    if (state_sampalok == STATE_FAULT) state_sampalok = STATE_IDLE;
+    Serial.println("Dispensing complete");
+    return;
+  }
+
+  stop_cycle();
 }
 
 void system_run() {
   flow_sensor_update(&flow_sensor_santol);
   flow_sensor_update(&flow_sensor_sampalok);
 
-  // Santol line
-  switch (state_santol) {
-    case STATE_IDLE:
-      break;
-
-    case STATE_FILLING:
-      if (flow_sensor_get_total_volume_ml(&flow_sensor_santol) >= VOLUME_SANTOL) {
-        relay_off(RELAY_PUMP_SANTOL);
-        state_santol = STATE_STIRRING;
-        stir_start_time_santol = millis();
-        relay_on(RELAY_MOTOR_SANTOL);
-        setLCDText("Santol: Stirring", 0, 0);
-      }
-      break;
-
-    case STATE_STIRRING:
-      if (millis() - stir_start_time_santol >= STIRRING_TIME) {
-        relay_off(RELAY_MOTOR_SANTOL);
-        relay_on(RELAY_VALVE_SANTOL);
-        state_santol = STATE_FILTERING;
-        setLCDText("Santol: Filtering", 0, 0);
-      }
-      break;
-
-    case STATE_FILTERING:
-      if (flow_sensor_get_flow_rate_ml_min(&flow_sensor_santol) < FILTER_END_FLOW_ML_MIN) {
-        relay_off(RELAY_VALVE_SANTOL);
-        state_santol = STATE_COMPLETE;
-        setLCDText("Santol: Complete", 0, 0);
-      }
-      break;
-
-    case STATE_COMPLETE:
-      break;
+  // STOP is handled before the state machines so it acts in the same pass.
+  if (button_pressed(BTN_STOP)) {
+    handle_stop();
   }
 
-  // Sampalok line
-  switch (state_sampalok) {
-    case STATE_IDLE:
-      break;
+  run_line(line_santol, state_santol);
+  run_line(line_sampalok, state_sampalok);
 
-    case STATE_FILLING:
-      if (flow_sensor_get_total_volume_ml(&flow_sensor_sampalok) >= VOLUME_SAMPALOK) {
-        relay_off(RELAY_PUMP_SAMPALOK);
-        state_sampalok = STATE_STIRRING;
-        stir_start_time_sampalok = millis();
-        relay_on(RELAY_MOTOR_SAMPALOK);
-        setLCDText("Sampalok: Stirring", 0, 1);
-      }
-      break;
-
-    case STATE_STIRRING:
-      if (millis() - stir_start_time_sampalok >= STIRRING_TIME) {
-        relay_off(RELAY_MOTOR_SAMPALOK);
-        relay_on(RELAY_VALVE_SAMPALOK);
-        state_sampalok = STATE_FILTERING;
-        setLCDText("Sampalok: Filtering", 0, 1);
-      }
-      break;
-
-    case STATE_FILTERING:
-      if (flow_sensor_get_flow_rate_ml_min(&flow_sensor_sampalok) < FILTER_END_FLOW_ML_MIN) {
-        relay_off(RELAY_VALVE_SAMPALOK);
-        state_sampalok = STATE_COMPLETE;
-        setLCDText("Sampalok: Complete", 0, 1);
-      }
-      break;
-
-    case STATE_COMPLETE:
-      break;
+  if (button_pressed(BTN_START)) {
+    handle_start();
   }
 
-  // Operator input: Select starts both lines when both are idle
-  ButtonID pressed = button_get_pressed();
-  if (pressed == BTN_SELECT) {
-    if (state_santol == STATE_IDLE && state_sampalok == STATE_IDLE) {
-      start_santol_cycle();
-      start_sampalok_cycle();
-    }
-  }
+  update_display();
+}
+
+// ---------------------------------------------------------------------------
+// Cycle control
+// ---------------------------------------------------------------------------
+static void start_line(Line& line, BiosorptionState& state) {
+  flow_sensor_reset_total_volume(line.sensor);
+
+  relay_on(line.pump);
+  relay_off(line.motor);
+  relay_off(line.valve);
+
+  state = STATE_FILLING;
+  line.phase_start = millis();
 }
 
 void start_santol_cycle() {
-  if (state_santol != STATE_IDLE) return;
-
-  flow_sensor_reset_total_volume(&flow_sensor_santol);
-
-  relay_on(RELAY_PUMP_SANTOL);
-  relay_off(RELAY_VALVE_SANTOL);
-  relay_off(RELAY_MOTOR_SANTOL);
-
-  state_santol = STATE_FILLING;
-  setLCDText("Santol: Filling...", 0, 0);
+  if (state_santol != STATE_IDLE && state_santol != STATE_COMPLETE) return;
+  start_line(line_santol, state_santol);
+  Serial.println("Santol: filling");
 }
 
 void start_sampalok_cycle() {
-  if (state_sampalok != STATE_IDLE) return;
-
-  flow_sensor_reset_total_volume(&flow_sensor_sampalok);
-
-  relay_on(RELAY_PUMP_SAMPALOK);
-  relay_off(RELAY_VALVE_SAMPALOK);
-  relay_off(RELAY_MOTOR_SAMPALOK);
-
-  state_sampalok = STATE_FILLING;
-  setLCDText("Sampalok: Filling...", 0, 1);
+  if (state_sampalok != STATE_IDLE && state_sampalok != STATE_COMPLETE) return;
+  start_line(line_sampalok, state_sampalok);
+  Serial.println("Sampalok: filling");
 }
 
 void stop_cycle() {
-  // Emergency stop: all relays off, both lines back to idle
+  // Hard stop / reset: every relay off, both lines back to idle, faults
+  // cleared, so a new cycle can be started straight away.
   relay_all_off();
   state_santol = STATE_IDLE;
   state_sampalok = STATE_IDLE;
-  setLCDText("Stopped", 0, 0);
-  setLCDText("Stopped", 0, 1);
+  Serial.println("Force stop");
 }

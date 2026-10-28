@@ -9,16 +9,14 @@
 // input-only pins 34-39 have no internal pull-ups and cannot be used
 // with INPUT_PULLUP.
 
-#define BTN_COUNT 4
+#define BTN_COUNT 2
 
 // Button identifiers. IDs are 1-based; the buttons[] array is 0-based
-// (index = id - BTN_UP).
+// (index = id - BTN_START).
 typedef enum {
   BTN_NONE = 0,
-  BTN_UP,
-  BTN_DOWN,
-  BTN_SELECT,
-  BTN_BACK
+  BTN_START,
+  BTN_STOP
 } ButtonID;
 
 // Per-button input state, maintained by button_update()
