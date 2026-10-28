@@ -5,6 +5,9 @@ build/
 *.elf
 *.map
 
+# 3D print models and slicer output
+model/
+
 # Editor and OS files
 .vscode/
 .idea/
